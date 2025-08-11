@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(rm:*)",
+      "Bash(code --version)",
+      "Bash(/usr/bin/python3 -m pip install pyspark)",
+      "Bash(/usr/bin/python3:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": []
+  }
+}

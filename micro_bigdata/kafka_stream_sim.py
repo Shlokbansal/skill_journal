@@ -1,61 +1,112 @@
 """
-Kafka Streaming Simulation
-Simulates patient heart rate data for real-time processing.
+Kafka Streaming Simulation (Upgraded)
+- Mode 'kafka': send patient vitals to Kafka topic 'patient_vitals'
+- Mode 'file' : append JSON lines to 'heart_rate_stream.jsonl' for Spark fallback
+
+Usage examples:
+  python kafka_stream_sim.py                 # defaults to --mode kafka
+  python kafka_stream_sim.py --mode file     # writes JSONL for Spark fallback
+  python kafka_stream_sim.py --mode kafka --rate 1 --count 100
 """
 
-from kafka import KafkaProducer
-from kafka.errors import NoBrokersAvailable
+import argparse
 import json
-import time
 import random
+import signal
 import sys
+import time
+from datetime import datetime
 
-def create_kafka_producer():
-    """Create Kafka producer with error handling"""
+# ----------------- CLI -----------------
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--mode", choices=["kafka", "file"], default="kafka",
+                   help="Where to send events")
+    p.add_argument("--bootstrap", default="localhost:9092",
+                   help="Kafka bootstrap servers")
+    p.add_argument("--topic", default="patient_vitals",
+                   help="Kafka topic")
+    p.add_argument("--outfile", default="heart_rate_stream.jsonl",
+                   help="JSONL file for --mode file")
+    p.add_argument("--rate", type=float, default=2.0,
+                   help="Seconds between messages")
+    p.add_argument("--count", type=int, default=0,
+                   help="Number of messages to send (0 = infinite)")
+    return p.parse_args()
+
+# ----------------- Data generator -----------------
+def make_event():
+    return {
+        "patient_id": random.randint(1000, 1010),
+        "heart_rate": random.randint(60, 100),
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+# ----------------- Kafka producer (optional) -----------------
+def build_kafka_producer(bootstrap):
     try:
+        from kafka import KafkaProducer  # requires 'kafka-python'
         producer = KafkaProducer(
-            bootstrap_servers='localhost:9092',  # Change if using a cloud Kafka
-            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-            retries=3,
-            retry_backoff_ms=1000
+            bootstrap_servers=bootstrap,
+            acks="all",
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            key_serializer=lambda k: str(k).encode("utf-8"),
+            retries=10,
+            linger_ms=20,                 # small batching for throughput
+            enable_idempotence=True       # avoid duplicates on retry
         )
-        # Test connection
-        producer.bootstrap_connected()
         return producer
-    except NoBrokersAvailable:
-        print("Error: No Kafka brokers available at localhost:9092")
-        print("Please ensure Kafka is running:")
-        print("1. Start Zookeeper: bin/zookeeper-server-start.sh config/zookeeper.properties")
-        print("2. Start Kafka: bin/kafka-server-start.sh config/server.properties")
-        print("3. Or use Docker: docker run -p 9092:9092 apache/kafka:2.8.1")
-        return None
     except Exception as e:
-        print(f"Error connecting to Kafka: {e}")
+        print(f"[WARN] Could not create Kafka producer: {e}")
         return None
 
-# 1. Configure Kafka producer
-producer = create_kafka_producer()
-if not producer:
-    sys.exit(1)
+# ----------------- Main -----------------
+def main():
+    args = parse_args()
+    print(f"=== Streaming mode: {args.mode} ===")
 
-# 2. Simulate health data stream
-try:
-    while True:
-        patient_data = {
-            "patient_id": random.randint(1000, 1010),
-            "heart_rate": random.randint(60, 100),  # bpm
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        try:
-            future = producer.send('patient_vitals', value=patient_data)
-            future.get(timeout=10)  # Wait for send confirmation
-            print(f"Sent: {patient_data}")
-        except Exception as e:
-            print(f"Failed to send message: {e}")
-        
-        time.sleep(2)  # send every 2 seconds
-except KeyboardInterrupt:
-    print("\nShutting down producer...")
-    producer.close()
-    sys.exit(0)
+    # graceful Ctrl+C
+    stop = {"flag": False}
+    def handle_sigint(_sig, _frm): stop["flag"] = True
+    signal.signal(signal.SIGINT, handle_sigint)
+
+    producer = None
+    outfh = None
+
+    if args.mode == "kafka":
+        producer = build_kafka_producer(args.bootstrap)
+        if producer is None:
+            print("[INFO] Falling back to file mode because Kafka is unavailable.")
+            args.mode = "file"
+
+    if args.mode == "file":
+        outfh = open(args.outfile, "a", buffering=1)
+
+    sent = 0
+    try:
+        while not stop["flag"] and (args.count == 0 or sent < args.count):
+            event = make_event()
+
+            if args.mode == "kafka":
+                # key by patient_id to preserve per-patient ordering
+                fut = producer.send(args.topic, key=event["patient_id"], value=event)
+                fut.get(timeout=10)  # confirm send
+            else:
+                outfh.write(json.dumps(event) + "\n")
+
+            sent += 1
+            print("Sent:", event)
+            time.sleep(args.rate)
+
+    finally:
+        if producer:
+            try: producer.flush(5)
+            except Exception: pass
+            try: producer.close()
+            except Exception: pass
+        if outfh:
+            outfh.close()
+        print("Shutting down producer.")
+
+if __name__ == "__main__":
+    main()

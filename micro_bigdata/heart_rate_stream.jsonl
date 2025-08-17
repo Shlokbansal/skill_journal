@@ -1,0 +1,9 @@
+{"patient_id": 1001, "heart_rate": 72, "timestamp": "2025-08-17 10:00:00"}
+{"patient_id": 1002, "heart_rate": 85, "timestamp": "2025-08-17 10:00:01"}
+{"patient_id": 1003, "heart_rate": 68, "timestamp": "2025-08-17 10:00:02"}
+{"patient_id": 1009, "heart_rate": 91, "timestamp": "2025-08-17 20:39:11"}
+{"patient_id": 1008, "heart_rate": 93, "timestamp": "2025-08-17 20:39:13"}
+{"patient_id": 1003, "heart_rate": 71, "timestamp": "2025-08-17 20:39:15"}
+{"patient_id": 1005, "heart_rate": 74, "timestamp": "2025-08-17 20:39:17"}
+{"patient_id": 1005, "heart_rate": 77, "timestamp": "2025-08-17 20:39:19"}
+{"patient_id": 1010, "heart_rate": 105, "timestamp": "2025-08-17 20:40:00"}
